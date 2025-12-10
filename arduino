@@ -1,0 +1,62 @@
+// 아두이노 코드 (수정됨)
+
+long startTime = 0; 
+const int LED_PIN = 8;
+const int BUZZER_PIN = 7;
+boolean alertTriggered = false; // 현재 경보가 발동 중인지 여부
+
+void setup()
+{
+  pinMode(10, INPUT); 
+  pinMode(9, OUTPUT); 
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  Serial.begin(9600);
+}
+
+void loop()
+{
+  long currentTime = millis();
+  int irLeft = irDetect(9, 10, 38000);
+
+  // === 경보 시작 트리거 (ALERT 전송) ===
+  // 문이 열렸고, 아직 경보 상태가 아니라면
+  if (irLeft == 1 && alertTriggered == false) { 
+      // 1. 상태 변수 설정
+      alertTriggered = true; 
+      startTime = currentTime; // 경보 시작 시간 기록
+      
+      // 2. 프로세싱으로 경보 시작 문자열 전송 (딱 한 번)
+      Serial.println("ALERT"); 
+      Serial.println("INTRUDER ALERT! (Start 10s buzzer)");
+  }
+  
+  // === LED/버저 경보 로직 (10초 동안 유지) ===
+  if (alertTriggered == true && (currentTime - startTime < 10000)) {
+    // (LED/버저 깜빡이는 기존 로직 유지)
+    long elapsedTime = currentTime - startTime;
+    if (elapsedTime % 400 < 200) { digitalWrite(LED_PIN, HIGH); } else { digitalWrite(LED_PIN, LOW); }
+    if (elapsedTime % 1000 < 500) { tone(BUZZER_PIN, 1000, 10); } else { tone(BUZZER_PIN, 800, 10); }
+  } 
+  
+  // === 경보 종료 트리거 (RESET 전송) ===
+  // 10초가 지났다면 경보 종료 및 초기화
+  else if (alertTriggered == true && (currentTime - startTime >= 10000)) {
+    // 1. 물리적 경보 종료
+    digitalWrite(LED_PIN, LOW);
+    noTone(BUZZER_PIN);
+    alertTriggered = false; // 상태 변수 초기화
+    
+    // 2. 프로세싱으로 경보 종료 문자열 전송 (딱 한 번)
+    Serial.println("RESET"); 
+    Serial.println("Alarm period ended.");
+  }
+  
+  delay(10); 
+}
+
+int irDetect(int irLedPin, int irReceiverPin, long frequency) {
+  tone(irLedPin, frequency, 8); delay(1);
+  int ir = digitalRead(irReceiverPin); delay(1);
+  return ir;
+}
