@@ -1,0 +1,105 @@
+import processing.serial.*;
+import processing.net.*;
+
+Serial p;
+Server s;
+Client c;
+
+// === 핵심 상태 변수 ===
+String receivedMessage = ""; 
+
+// === 앱 인벤터 전송용 변수 및 경보 타이머 변수 ===
+String currentStatusForApp = "0"; // 1이면 빨간색, 0이면 초록색
+
+boolean isAlert = false;     // 현재 화면이 경보 상태(빨간색)인지 여부
+long alertStartTime = 0;     // 경보가 시작된 시간 (millis() 값)
+final long ALERT_DURATION = 10000; // 경보 지속 시간: 10초 (10000ms)
+
+void setup() {
+  size(400, 300);
+  textAlign(CENTER, CENTER);
+  textSize(24);
+  
+  println(Serial.list());
+  p = new Serial(this, "COM3", 9600); // 포트 확인
+  p.bufferUntil('\n'); 
+
+  s = new Server(this, 12345);
+  println("Server is running on port 12345.");
+}
+
+void draw() {
+    
+  // === 1. 시리얼 데이터 수신 및 경보 상태 업데이트 (Arduino -> Processing) ===
+  if (p.available() > 0) {
+    String data = p.readStringUntil('\n');
+    
+    if (data != null) {
+      receivedMessage = trim(data);
+      
+      // ****** 경보 시작 트리거 ******
+      if (receivedMessage.equals("ALERT")) {
+          if (isAlert == false) { // 이미 경보 중이 아니라면
+              isAlert = true; 
+              currentStatusForApp = "1"; // 앱에 보낼 상태를 1로 설정
+              println("Alarm Triggered (State: 1)"); 
+              alertStartTime = millis(); // 경보 시작 시간 기록
+          }
+      } 
+      // ****** 경보 종료 트리거 ******
+      else if (receivedMessage.equals("RESET")) {
+          isAlert = false; // 경보 상태 해제
+          currentStatusForApp = "0"; // 앱에 보낼 상태를 0으로 설정
+          println("Alarm Reset (State: 0)");
+      }
+    }
+  }
+
+  // === 2. HTTP 클라이언트 요청 처리 (App Inventor -> Processing) ===
+  c = s.available();
+  if (c != null) {
+    String request = c.readString();
+    
+    c.write("HTTP/1.1 200 OK\r\n");
+    c.write("Content-Type: text/plain\r\n");
+    c.write("Connection: close\r\n");
+    c.write("\r\n");
+    
+    // 현재의 화면 상태(1 또는 0)를 전송
+    c.write(currentStatusForApp); 
+    
+    c.stop(); // 클라이언트와의 연결 종료
+  }
+
+  // === 3. 화면 그리기 ===
+  if (isAlert == true) {
+    // Alert State (Red screen)
+    background(255, 50, 50); 
+    fill(255); 
+    text(">>> INTRUDER ALERT <<<", width/2, height/2 - 30);
+    textSize(20);
+    
+    // ****** 남은 시간 계산 및 표시 로직 (수정됨) ******
+    // 남은 시간(초) = (경보 지속 시간 - 경과 시간) / 1000
+    long elapsedTime = millis() - alertStartTime;
+    // (ALERT_DURATION - elapsedTime) / 1000: 남은 시간을 초 단위로 계산
+    float timeLeft = (ALERT_DURATION - elapsedTime) / 1000.0; 
+    
+    // 0 이하가 되지 않도록 처리 (정확히 0초에서 리셋되도록)
+    if (timeLeft < 0) {
+        timeLeft = 0;
+    }
+    
+    // 소수점 한 자리까지 표시하도록 format() 사용
+    text("SERVER ACTIVE (RESETS IN " + nf(timeLeft, 1, 1) + "s)", width/2, height/2 + 10); 
+    // ************************************************
+    
+  } else {
+    // Normal State (Green screen)
+    background(50, 200, 50); 
+    fill(0); 
+    text("DOOR CLOSED", width/2, height/2 - 20);
+    textSize(18);
+    text("SERVER ACTIVE", width/2, height/2 + 20);
+  }
+}
